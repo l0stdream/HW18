@@ -1,48 +1,61 @@
 package org.javapro.hw18.controller;
 
-import org.javapro.hw18.dto.Order;
-import org.javapro.hw18.dto.Product;
+import lombok.AllArgsConstructor;
+import org.javapro.hw18.dto.OrderDto;
+import org.javapro.hw18.dto.ProductDto;
 import org.javapro.hw18.service.OrderService;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 
 @RestController
 @RequestMapping("/orders")
+@AllArgsConstructor
 public class OrderController {
-    private final OrderService orderService;
 
-    public OrderController(OrderService orderService) {
-        this.orderService = orderService;
+    private OrderService orderService;
+
+
+    @GetMapping("/{orderId}")
+    public OrderDto getOrder(@PathVariable int orderId) {
+        return orderService.getOrderById(orderId);
     }
-
 
     @PostMapping
-    public void addOrder(@RequestBody Order order) {
-            this.orderService.addOrder(order);
+    public void addOrder(@RequestBody(required = false) OrderDto orderDto) {
+        orderService.addOrder(orderDto);
     }
 
-    @GetMapping("/{id}")
-    public Order getOrder(@PathVariable int id) {
-        return this.orderService.getOrder(id);
+
+    @PostMapping("/{orderId}")
+    public void addProductToOrder(@PathVariable int orderId, @RequestBody List<ProductDto> products) {
+        orderService.addProductsToOrder(orderId, products);
     }
 
-    @DeleteMapping("/{id}")
-    public void deleteOrder(@PathVariable int id) {
-        this.orderService.deleteOrder(id);
+    @PutMapping("/{orderId}")
+    public void updateOrder(@PathVariable int orderId, @RequestBody OrderDto orderDto) {
+        orderService.updateOrderById(orderId, orderDto);
     }
 
-    @PutMapping("/{id}")
-    public void updateOrder(@PathVariable int id, @RequestBody Order order) {
-            this.orderService.updateOrder(id, order);
+    @PatchMapping("/{orderId}/products/{productId}")
+    public void changeProductInOrderByOrderId(@PathVariable int orderId, @PathVariable int productId, @RequestBody ProductDto productDto) {
+        orderService.changeProductInOrderByOrderId(orderId, productId, productDto);
     }
 
-    @PatchMapping("/{id}/products")
-    public void addProductToOrder(@PathVariable int id, @RequestBody Product product) {
-        this.orderService.addProductToOrder(id, product);
+    @DeleteMapping("/{orderId}")
+    public void deleteOrderByOrderId(@PathVariable int orderId) {
+        orderService.deleteOrderByOrderId(orderId);
+    }
+
+    @DeleteMapping("/{orderId}/products")
+    public void deleteAllProductInOrderByOrderId(@PathVariable int orderId) {
+        orderService.deleteAllProductsFromOrderByOrderId(orderId);
     }
 
     @DeleteMapping("/{orderId}/products/{productId}")
     public void deleteProductFromOrder(@PathVariable int orderId, @PathVariable int productId) {
-        this.orderService.deleteProductFromOrder(orderId, productId);
+        orderService.deleteProductFromOrder(orderId, productId);
     }
 }
+

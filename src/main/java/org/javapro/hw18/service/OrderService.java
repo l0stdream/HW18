@@ -1,98 +1,119 @@
 package org.javapro.hw18.service;
 
-import org.javapro.hw18.dto.Order;
-import org.javapro.hw18.dto.Product;
-import org.springframework.beans.factory.annotation.Autowired;
+
+import lombok.AllArgsConstructor;
+import org.javapro.hw18.converter.OrderConverter;
+import org.javapro.hw18.converter.OrderProductConverter;
+import org.javapro.hw18.converter.ProductConverter;
+import org.javapro.hw18.dto.OrderDto;
+import org.javapro.hw18.dto.ProductDto;
+import org.javapro.hw18.entity.Order;
+import org.javapro.hw18.entity.OrderProduct;
+import org.javapro.hw18.entity.OrderProductId;
+import org.javapro.hw18.repository.OrderRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 @Service
+@AllArgsConstructor
 public class OrderService {
-    private final Map<Integer, Order> orders;
 
-    @Autowired
-    public OrderService(Map<Integer, Order> orders) {
-        this.orders = orders;
+    private OrderRepository orderRepository;
+    private ProductService productService;
+    private OrderProductService orderProductService;
+
+    public OrderDto getOrderById(int id) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order wasn't found."));
+
+        List<OrderProduct> ordersProducts = orderProductService.getProductsByOrderId(id);
+        return OrderConverter.toOrderDto(order, ordersProducts);
     }
 
-
-    public void addOrder(Order order) {
-        if (orders.get(order.getId()) != null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Order with that ID already exists");
+    public void addOrder(OrderDto orderDto) {
+        if (orderDto == null) {
+            orderRepository.save(new Order());
         } else {
-            orders.put(order.getId(), order);
-        }
-    }
-
-
-    public Order getOrder(int id) {
-        if (orders.get(id) != null) {
-            return orders.get(id);
-        } else {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order doesn't exist.");
-        }
-    }
-
-
-    public void deleteOrder(int id) {
-        if (orders.get(id) != null) {
-            orders.remove(id);
-        } else {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order doesn't exist.");
-        }
-    }
-
-
-    public void updateOrder(int id, Order order) {
-        if (order.getId() != id) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cant change your order ID");
-        } else {
-            orders.put(id, order);
-        }
-    }
-
-    public void addProductToOrder(int orderId, Product product) {
-        Order order = orders.get(orderId);
-        if (order != null) {
-            List<Product> products = order.getProducts();
-            if (products == null) {
-                products = new ArrayList<>();
+            Order order = orderRepository.save(OrderConverter.toOrder(orderDto));
+            List<ProductDto> products = orderDto.getProducts();
+            if (products != null && !products.isEmpty()) {
+                addProductsToOrder(order.getId(), products);
             }
-            products.add(product);
-            order.setProducts(products);
-            orders.put(orderId, order);
-        } else {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order doesn't exist.");
         }
+    }
+
+
+    public void addProductsToOrder(int orderId, List<ProductDto> products) {
+        if (products == null || products.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Products list can't be empty");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order wasn't found."));
+
+        productService.validateExistingProducts(products);
+
+        for (ProductDto productDto : products) {
+                    OrderProduct ordersProducts = OrderProductConverter.toOrderProduct(
+                            order,
+                            ProductConverter.toProduct(productDto),
+                            productDto.getQuantity());
+                    orderProductService.saveProductToOrder(ordersProducts);
+        }
+    }
+
+    public void deleteOrderByOrderId(int id) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order wasn't found."));
+        orderRepository.delete(order);
+    }
+
+    public void updateOrderById(int id, OrderDto orderDto) {
+        if (!orderRepository.existsById(id)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Wrong order in request.");
+        }
+
+         orderProductService.deleteAllProductsFromOrderById(id);
+         addProductsToOrder(id, orderDto.getProducts());
+         orderRepository.updateById(id, orderDto.getComment());
     }
 
     public void deleteProductFromOrder(int orderId, int productId) {
-        Order order = orders.get(orderId);
+        OrderProductId orderProductId = setOrderProductId(orderId, productId);
+        Optional<OrderProduct> orderProducts = orderProductService.getProductByOrderProductId(orderProductId);
 
-        if (order == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order doesn't exist.");
+        orderProducts.ifPresentOrElse(orderProductService::deleteProductFromOrderById,
+                () -> {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Product doesn't exist in this order.");
+                });
+    }
+
+    public void changeProductInOrderByOrderId(int orderId, int productId, ProductDto productDto) {
+        if (!orderRepository.existsById(orderId)){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order wasn't found.");
         }
+        OrderProductId orderProductId = setOrderProductId(orderId, productId);
+        orderProductService.updateProductInOrderById(orderProductId, productDto);
+    }
 
-        List<Product> products = order.getProducts();
-
-        if (products == null || products.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product doesn't exist in this order.");
+    public void deleteAllProductsFromOrderByOrderId(int orderId){
+        if( orderProductService.deleteAllProductsFromOrderById(orderId)<= 0){
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Order doesn't exist in this order.");
         }
+    }
 
-        boolean productRemoved = products.removeIf(product -> product.getId() == productId);
+    public OrderProductId setOrderProductId(int orderId, int productId) {
+        OrderProductId id = new OrderProductId();
+        id.setOrderId(orderId);
+        id.setProductId(productId);
 
-        if (!productRemoved) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product doesn't exist in this order.");
-        }
-
-        order.setProducts(products);
-        orders.put(orderId, order);
+        return id;
     }
 }
